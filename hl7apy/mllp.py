@@ -175,13 +175,13 @@ class MLLPServer(ThreadingMixIn, TCPServer):
     """
     allow_reuse_address = True
 
-    def __init__(self, host, port, handlers, timeout=10, char_encoding='utf-8', keep_connection_alive=False):
+    def __init__(self, host, port, handlers, timeout=10, char_encoding='utf-8', keep_connection_open=False):
         self.host = host
         self.port = port
         self.handlers = handlers
         self.timeout = timeout
         self.char_encoding = char_encoding
-        self.keep_connection_alive = keep_connection_alive
+        self.keep_connection_open = keep_connection_open
         TCPServer.__init__(self, (host, port), _MLLPRequestHandler)
 
 
