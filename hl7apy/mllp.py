@@ -53,7 +53,6 @@ class InvalidHL7Message(HL7apyException):
 
 
 class _MLLPRequestHandler(StreamRequestHandler):
-    encoding = 'utf-8'
 
     def __init__(self, *args, **kwargs):
         StreamRequestHandler.__init__(self, *args, **kwargs)
@@ -66,41 +65,59 @@ class _MLLPRequestHandler(StreamRequestHandler):
             ''.join([self.sb.decode('ascii'), r"(([^\r]+\r)*([^\r]+\r?))", self.eb.decode('ascii'), self.cr.decode('ascii')]))
         self.handlers = self.server.handlers
         self.timeout = self.server.timeout
+        self.encoding = self.server.char_encoding
+        self.keep_connection_open = self.server.keep_connection_open
 
         StreamRequestHandler.setup(self)
 
     def handle(self):
         end_seq = self.eb + self.cr
-        try:
-            line = self.request.recv(3)
-        except socket.timeout:
-            self.request.close()
-            return
+        first_pass = True
 
-        if line[:1] != self.sb:  # First MLLP char
-            self.request.close()
-            return
-
-        while line[-2:] != end_seq:
+        while first_pass or self.keep_connection_open:
             try:
-                char = self.rfile.read(1)
-                if not char:
-                    break
-                line += char
+                line = self.rfile.read(1)
             except socket.timeout:
                 self.request.close()
                 return
 
-        message = self._extract_hl7_message(line.decode(self.encoding))
-        if message is not None:
-            try:
-                response = self._route_message(message)
-            except Exception:
+            if line[:1] != self.sb:  # First MLLP char
                 self.request.close()
-            else:
-                # encode the response
-                self.wfile.write(response.encode(self.encoding))
-        self.request.close()
+                return
+
+            while line[-2:] != end_seq:
+                try:
+                    char = self.rfile.read(1)
+                    if not char:
+                        break
+                    line += char
+                except socket.timeout:
+                    self.request.close()
+                    return
+
+            message = self._extract_hl7_message(line.decode(self.encoding))
+            if message is not None:
+                try:
+                    response = self._route_message(message)
+                except Exception:
+                    self.request.close()
+                else:
+                    # encode the response
+                    self.wfile.write(response.encode(self.encoding))
+            first_pass = False
+
+    def finish(self):
+        # if keep_connection_open don't close wfile and rfile else just call baseclass routine
+        if self.keep_connection_open:
+            if not self.wfile.closed:
+                try:
+                    self.wfile.flush()
+                except socket.error:
+                    # An socket error may have occurred here, such as
+                    # the local error ECONNABORTED.
+                    pass
+        else:
+            StreamRequestHandler.finish(self)
 
     def _extract_hl7_message(self, msg):
         message = None
@@ -158,11 +175,13 @@ class MLLPServer(ThreadingMixIn, TCPServer):
     """
     allow_reuse_address = True
 
-    def __init__(self, host, port, handlers, timeout=10):
+    def __init__(self, host, port, handlers, timeout=10, char_encoding='utf-8', keep_connection_alive=False):
         self.host = host
         self.port = port
         self.handlers = handlers
         self.timeout = timeout
+        self.char_encoding = char_encoding
+        self.keep_connection_alive = keep_connection_alive
         TCPServer.__init__(self, (host, port), _MLLPRequestHandler)
 
 
