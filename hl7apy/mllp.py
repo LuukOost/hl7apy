@@ -65,41 +65,47 @@ class MLLPRequestHandler(StreamRequestHandler):
         self.validator = re.compile(
             ''.join([self.sb.decode('ascii'), r"(([^\r]+\r)*([^\r]+\r?))", self.eb.decode('ascii'), self.cr.decode('ascii')]))
         self.handlers = self.server.handlers
-        self.timeout = self.server.timeout
+        self.keep_connection_open = self.server.keep_connection_open
+        self.connection.settimeout(self.server.timeout)
 
         StreamRequestHandler.setup(self)
 
     def handle(self):
         end_seq = self.eb + self.cr
-        try:
-            line = self.request.recv(3)
-        except socket.timeout:
-            self.request.close()
-            return
+        first_pass = True
 
-        if line[:1] != self.sb:  # First MLLP char
-            self.request.close()
-            return
-
-        while line[-2:] != end_seq:
+        while first_pass or self.keep_connection_open:
             try:
-                char = self.rfile.read(1)
-                if not char:
-                    break
-                line += char
+                line = self.request.recv(3)
             except socket.timeout:
                 self.request.close()
                 return
 
-        message = self._extract_hl7_message(line.decode(self.encoding))
-        if message is not None:
-            try:
-                response = self._route_message(message)
-            except Exception:
+            if line[:1] != self.sb:  # First MLLP char
                 self.request.close()
-            else:
-                # encode the response
-                self.wfile.write(response.encode(self.encoding))
+                return
+
+            while line[-2:] != end_seq:
+                try:
+                    char = self.rfile.read(1)
+                    if not char:
+                        break
+                    line += char
+                except socket.timeout:
+                    self.request.close()
+                    return
+
+            message = self._extract_hl7_message(line.decode(self.encoding))
+            if message is not None:
+                try:
+                    response = self._route_message(message)
+                except Exception:
+                    self.request.close()
+                else:
+                    # encode the response
+                    self.wfile.write(response.encode(self.encoding))
+            first_pass = False
+
         self.request.close()
 
     def _extract_hl7_message(self, msg):
@@ -164,12 +170,19 @@ class MLLPServer(ThreadingTCPServer):
     """
     allow_reuse_address = True
 
-    def __init__(self, host, port, handlers, timeout=10, request_handler_class=MLLPRequestHandler):
+    def __init__(self, host, port, handlers, timeout=10, request_handler_class=MLLPRequestHandler,
+                 keep_connection_open=False):
         self.host = host
         self.port = port
         self.handlers = handlers
         self.timeout = timeout
+        self.keep_connection_open = keep_connection_open
+        if self.keep_connection_open and self.timeout is not None:
+            logger.warn("Keep connection open is set, connection timeout should be set to None to "
+                        "prevent closing the connection if the timeout is reached. This might be desirable to recover "
+                        "from connections that hang.")
         ThreadingTCPServer.__init__(self, (host, port), request_handler_class)
+        self.serv
 
 
 class AbstractHandler(object):
