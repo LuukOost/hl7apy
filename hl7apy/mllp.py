@@ -67,6 +67,7 @@ class MLLPRequestHandler(StreamRequestHandler):
         self.handlers = self.server.handlers
         self.keep_connection_open = self.server.keep_connection_open
         self.connection.settimeout(self.server.timeout)
+        self.encoding = self.server.char_encoding
 
         StreamRequestHandler.setup(self)
 
@@ -171,18 +172,20 @@ class MLLPServer(ThreadingTCPServer):
     allow_reuse_address = True
 
     def __init__(self, host, port, handlers, timeout=10, request_handler_class=MLLPRequestHandler,
-                 keep_connection_open=False):
+                 keep_connection_open=False, char_encoding='utf-8'):
         self.host = host
         self.port = port
         self.handlers = handlers
         self.timeout = timeout
         self.keep_connection_open = keep_connection_open
-        if self.keep_connection_open and self.timeout is not None:
-            logger.warn("Keep connection open is set, connection timeout should be set to None to "
-                        "prevent closing the connection if the timeout is reached. This might be desirable to recover "
-                        "from connections that hang.")
+        # No logger defined, so leave the warning for now.
+        # if self.keep_connection_open and self.timeout is not None:
+        #     logger.warn("Keep connection open is set, connection timeout should be set to None to "
+        #                 "prevent closing the connection if the timeout is reached. This might be desirable to recover "
+        #                 "from connections that hang.")
+        self.char_encoding = char_encoding
         ThreadingTCPServer.__init__(self, (host, port), request_handler_class)
-        self.serv
+
 
 
 class AbstractHandler(object):
